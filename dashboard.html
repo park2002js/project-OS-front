@@ -192,10 +192,107 @@
       <div class="pill-menu" onclick="showLunchMap()">
         <img src="image/dish.png" alt="점메추"> 점메추
       </div>
+        <canvas id="temp" style = "display:none"></canvas>
     </aside>
   
     <main class="main-content" id="main"></main>
-  
+    
+    <script>
+
+      let today_date = '2025/05/18' // 이 부분은 오늘의 날짜를 받아와서 기본으로 설정하는 것으로
+
+      const RestAPI = {
+        baseURL: 'http://localhost:3000', // 이 부분의 url을 도메인을 얻는다면 변경
+
+        // 함수를 사용하는 측에서 endpoint를 변경함으로써 원하는 데이터 요청청
+        async Post(endpoint = '', payload = {}) {
+          try{
+              const res = await fetch(`${this.baseURL}/api${endpoint}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload) /*
+                  JSON.stringify({ 
+                      text: "todo2",
+                      done: false,
+                      message: "hi 백엔드"
+                      })
+                  */
+              });
+              const data  = await res.json();
+              console.log('Post 응답', data);
+              return data;
+          }
+          catch (err) {
+              console.error('에러 발생:', err);
+              return null;
+          }
+        },
+        
+        async Get(endpoint = '', payload = {}) {
+          try{
+              const res = await fetch(`${this.baseURL}/api${endpoint}`, {
+                  method: 'GET',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: payload /*
+                  JSON.stringify({ 
+                      대개 get요청은 body가 없음음
+                      })
+                  */
+              });
+              const data  = await res.json();
+              console.log('GET 응답', data);
+              return data;
+          }
+          catch (err) {
+              console.error('에러 발생:', err);
+              return null;
+          }
+        },
+
+        async Delete(endpoint = '', payload = {}) {
+          try{
+              const res = await fetch(`${this.baseURL}/api${endpoint}`, {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: payload /*
+                  JSON.stringify({ 
+                      어느 데이터를 지울 것인가 명시시
+                      })
+                  */
+              });
+              const data  = await res.json();
+              console.log('Delete 응답', data);
+              return data;
+          }
+          catch (err) {
+              console.error('에러 발생:', err);
+              return null;
+          }
+        },
+        
+        async Update(endpoint = '', payload = {}) {
+          try{
+              const res = await fetch(`${this.baseURL}/api${endpoint}`, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(payload) /*
+                  JSON.stringify({ 
+                      
+                      })
+                  */
+              });
+              const data  = await res.json();
+              console.log('Update 응답', data);
+              return data;
+          }
+          catch (err) {
+              console.error('에러 발생:', err);
+              return null;
+          }
+        }
+      };
+    </script>
+
     <script>
        function showReceiptInput() {
       document.getElementById("main").innerHTML = `
@@ -259,6 +356,13 @@
       document.getElementById('confirmCrop').addEventListener('click', () => {
         if (!cropper) return;
         const canvas = cropper.getCroppedCanvas();
+
+        const temp_canvas = document.getElementById('temp');
+        temp_canvas.width = canvas.width;
+        temp_canvas.height = canvas.height;
+        const tempCtx = temp_canvas.getContext('2d');
+        tempCtx.drawImage(canvas, 0 , 0);
+
         canvas.toBlob(blob => {
           croppedBlob = blob;
           croppedResult.src = URL.createObjectURL(blob);
@@ -269,19 +373,44 @@
         }, 'image/png');
       });
 
-      window.runOCR = function() {
+      window.runOCR = async function() {  // await 사용을 위해 async 사용
         if (!croppedBlob) {
           alert("크롭 후 버튼을 눌러주세요");
           return;
         }
         result.innerText = "OCR 인식 중...";
         extracted.innerText = "추출 중...";
+
+        /*
+
+          백엔드로 데이터 보내고 분석결과 받기기
+
+        */
+
+        const base64Data = document.getElementById('temp').toDataURL('image/png')
+        //console.log(base64Data)
+        const OCR_text = await RestAPI.Post('/ocr', { data:  base64Data}) // 비동기 함수 결과 반환 기다리기
+        
+        console.log(OCR_text.날짜, OCR_text.총액)
+          if(!OCR_text.err)
+          {
+            console.log('here')
+            const date = OCR_text.날짜 ? OCR_text.날짜 : today_date  // date결과 인식 못할시 null 값 반환 -> today_date로 대체체
+            const amount = OCR_text.총액 ? OCR_text.총액 : '금액 미인식'
+            extracted.innerHTML = `날짜 : ${date}<br>합계 금액 : ${amount}`;
+          }
+          else {
+            result.innerText = `오류 발생: ${OCR_text.err}`;
+            extracted.innerText = '추출 실패';
+          }
+        
+        /*
         Tesseract.recognize(
           croppedBlob,
           'kor',
           {
             langPath: 'https://tessdata.projectnaptha.com/4.0.0/',
-            logger: m => console.log(m)
+            //logger: m => console.log(m)
           }
         ).then(({ data: { text } }) => {
           result.innerText = text;
@@ -294,6 +423,7 @@
           result.innerText = `오류 발생: ${err.message}`;
           extracted.innerText = '추출 실패';
         });
+        */
       }
     }
 
@@ -368,7 +498,31 @@
     });
   }
 
-  
+  /*
+
+    데이터 불러와서 아래에서 쓰기.
+    미리 미리 데이터를 1회 불러온 뒤에 이후에 요청할 때마다?
+
+  */
+
+  const total_bills = RestAPI.Get(endpoint='/chart')
+  let category_bill = {}
+  let daily_bill = {}
+  let daily_emotion_bill = {}
+
+  if(!total_bills.err)
+  {
+    category_bill = total_bills.category
+    daily_bill = total_bills.daily
+    daily_emotion_bill = total_bills.emotion
+  }
+  else
+  {
+    //에러 핸들링링
+  }
+
+
+
       function showSpending() {
         document.getElementById("main").innerHTML = `
           <div class="glass-row-2">
@@ -515,8 +669,27 @@
       animate(); // 애니메이션 시작
     }
 
-    function loadEmotionModel() {
+    async function loadEmotionModel() {
       const input = document.getElementById("emotionInput").value.trim();
+
+      /*
+
+        데이터 보내기기
+
+      */
+      const emotion_score = await RestAPI.Post('/emotion', {date:today_date, text:input})
+      console.log(emotion_score.점수)
+      //점수에 따른 감정 표 = {0: "Very Negative", 1: "Negative", 2: "Neutral", 3: "Positive", 4: "Very Positive"}
+      if(!emotion_score.err)
+      {
+        const score = emotion_score.점수 ? emotion_score.점수 : 2  // 인식 안되서 null 값 오면 2로 대체
+        console.log('emotion 점수 : ${score}');
+      }
+      else {
+        consloe.log(`오류 발생: ${emotion_score.err}`);
+      }
+
+      // 감정 점수에 따라 다른 캐릭터 불러오기 구현
       const map = {
         '행복': 'happy.glb',
         '슬픔': 'sad.glb',
@@ -524,11 +697,12 @@
         '분노': 'angry.glb'
       };
       const fileName = map[input];
+      /*
       if (!fileName) {
         alert("감정은 '행복', '슬픔', '불안', '분노' 중에서 입력해주세요.");
         return;
       }
-
+      */
       const loader = new THREE.GLTFLoader();
       loader.load(`models/${fileName}`, (gltf) => {
       if (model) scene.remove(model);
